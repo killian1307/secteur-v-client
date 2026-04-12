@@ -45,7 +45,7 @@ const rpc = new DiscordRPC.Client({ transport: 'ipc' });
 const startTimestamp = new Date(); // Tracks how long they've been playing
 
 async function setActivity() {
-  if (!rpc || !mainWindow) return;
+  if (!rpc) return;
 
   rpc.setActivity({
     details: 'On the dashboard',      // First line
