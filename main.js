@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain } = require('electron'); // Added ipcMain
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 
@@ -19,7 +19,9 @@ function createWindow () {
     webPreferences: {
       // When loading live URLs, nodeIntegration must be false so malicious scripts can't access the user's computer.
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      // BRIDGE
+      preload: path.join(__dirname, 'preload.js') 
     }
   });
 
@@ -40,49 +42,50 @@ function createWindow () {
   mainWindow.loadURL('https://secteur-v.letterk.me');
 }
 
-// --- DISCORD RPC ---
+// --- IPC LISTENER & DISCORD RPC SETUP ---
 const rpc = new DiscordRPC.Client({ transport: 'ipc' });
-const startTimestamp = new Date(); // Tracks how long they've been playing
+const startTimestamp = new Date();
+
+// CREATE A VARIABLE TO HOLD THE USER'S DATA
+let currentUserData = null;
+
+// LISTEN FOR DATA FROM THE WEBSITE
+ipcMain.on('update-rpc', (event, data) => {
+  console.log("Received data from website:", data);
+  currentUserData = data; // Save the name and elo
+  setActivity();          // Instantly update Discord
+});
 
 async function setActivity() {
   if (!rpc) return;
 
-  rpc.setActivity({
-    details: 'On the dashboard',      // First line
-    state: 'Managing Brackets',       // Second line
-    startTimestamp,                   // Adds an "elapsed time" timer
-    
-    // Large Image
-    largeImageKey: 'pfp',             // Key of the large image asset
-    largeImageText: 'Secteur V',      // Hover text for the large image
-    
-    // Small Image
-    smallImageKey: 'secteurv',        // Key of the small image asset
-    smallImageText: 'PlayerName - 1200 EDP', // Hover text for the small image
-    
-    instance: false,                  // Not a joinable multiplayer lobby
-    
-    // Buttons
-    buttons: [
-      {
-        label: 'Check it out!',
-        url: 'https://secteur-v.letterk.me'
-      }
-    ]
-  });
+  // DYNAMICALLY GENERATE THE HOVER TEXT
+  let hoverText = 'Not logged in';
+  if (currentUserData) {
+    hoverText = `${currentUserData.username} - ${currentUserData.elo} EDP`;
+  }
+
+  try {
+    await rpc.setActivity({
+      details: 'On the dashboard',
+      state: 'Managing Brackets',
+      startTimestamp,
+      largeImageKey: 'pfp',             
+      largeImageText: 'Secteur V',      
+      smallImageKey: 'secteurv',        
+      smallImageText: hoverText,        // USE THE DYNAMIC TEXT HERE
+      instance: false,                  
+      buttons: [{ label: 'Check it out!', url: 'https://secteur-v.letterk.me' }]
+    });
+  } catch (error) {
+    console.error('❌ Payload rejected:', error);
+  }
 }
 
 rpc.on('ready', () => {
-
-  console.log('✅ Discord RPC Connected and Ready!');
-  console.log(`User: ${rpc.user.username}`);
-
+  console.log(`✅ Discord RPC Connected!`);
   setActivity();
-  
-  // Refreshes the activity every 15 seconds
-  setInterval(() => {
-    setActivity();
-  }, 15e3);
+  setInterval(() => { setActivity(); }, 15000);
 });
 
 // Start the RPC connection
