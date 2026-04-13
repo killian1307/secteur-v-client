@@ -1,10 +1,14 @@
-const { app, BrowserWindow, session, ipcMain, dialog } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer } = require('electron'); // Added ipcMain
+const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 const windowStateKeeper = require('electron-window-state');
 
 const clientId = '1469011238552862764'; 
 DiscordRPC.register(clientId);
+
+let tray = null;
+let isQuitting = false;
 
 let mainWindow;
 
@@ -93,6 +97,60 @@ function createWindow () {
       event.preventDefault(); 
     }
   });
+
+  // Intercept the close button to hide to tray instead
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+    return false;
+  });
+}
+
+function createTray() {
+  tray = new Tray(path.join(__dirname, 'build/icon.ico'));
+  
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open Secteur V', click: () => mainWindow.show() },
+    { type: 'separator' },
+    { 
+      label: 'Quit', 
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      } 
+    }
+  ]);
+  
+  tray.setToolTip('Secteur V');
+  tray.setContextMenu(contextMenu);
+
+  // Double click tray icon to open
+  tray.on('double-click', () => mainWindow.show());
+
+  // left click to open context menu
+  tray.on('click', () => tray.popUpContextMenu());
+}
+
+async function takeScreenshotAndSend() {
+  if (!mainWindow) return;
+
+  try {
+    // Grab the primary screen
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } });
+    const primaryScreen = sources[0];
+
+    if (primaryScreen) {
+      // Convert the image to a Base64 Data URL
+      const base64Image = primaryScreen.thumbnail.toDataURL();
+      
+      // Send it through the bridge to the PHP website
+      mainWindow.webContents.send('screenshot-captured', base64Image);
+    }
+  } catch (err) {
+    console.error("Screenshot failed:", err);
+  }
 }
 
 // ==========================================
@@ -216,6 +274,17 @@ function updateSplashText(text) {
 }
 
 app.whenReady().then(() => {
+
+  // REGISTER GLOBAL HOTKEYS
+  const ret = globalShortcut.register('CommandOrControl+Shift+S', () => {
+    console.log('Screenshot Hotkey Pressed!');
+    takeScreenshotAndSend();
+  });
+
+  if (!ret) {
+    console.log('Hotkey registration failed.');
+  }
+
   createSplashWindow();
   
   setTimeout(() => {
@@ -227,6 +296,7 @@ app.whenReady().then(() => {
       setTimeout(() => {
         if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
         createWindow(); // Open the main app
+        createTray();    // Set up the system tray
       }, 1500);
       
     } else {
@@ -234,6 +304,11 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }
   }, 1000);
+});
+
+// Unregister when quitting
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 // Auto-Updater Events
@@ -251,6 +326,7 @@ autoUpdater.on('update-not-available', () => {
   setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     createWindow(); // Opens the main app
+    createTray();    // Set up the system tray
   }, 1000);
 });
 
@@ -276,5 +352,6 @@ autoUpdater.on('error', (err) => {
   setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     createWindow(); // Let them into the app even if the update check fails
+    createTray();    // Set up the system tray
   }, 2000);
 });
