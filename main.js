@@ -147,14 +147,76 @@ ipcMain.handle('get-auto-start-status', () => {
 
 const { autoUpdater } = require('electron-updater');
 
+let splashWindow;
+
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 400,
+    height: 300,
+    transparent: true,
+    frame: false, // Removes the Windows top bar
+    alwaysOnTop: true,
+    webPreferences: { nodeIntegration: true }
+  });
+  splashWindow.loadFile('splash.html');
+}
+
+// Helper to safely update the text on the splash screen
+function updateSplashText(text) {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.executeJavaScript(`document.getElementById('status').innerText = '${text}';`);
+  }
+}
+
 app.whenReady().then(() => {
-  createWindow();
-  autoUpdater.checkForUpdatesAndNotify();
+  createSplashWindow();
+  
+  setTimeout(() => {
+    // Check if running via 'npm start' or via built '.exe'
+    if (!app.isPackaged) {
+      // Dev Mode
+      updateSplashText('Dev Mode: Skipping updates...');
+      
+      setTimeout(() => {
+        if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+        createWindow(); // Open the main app
+      }, 1500);
+      
+    } else {
+      // Production Mode. Check GitHub for updates
+      autoUpdater.checkForUpdatesAndNotify();
+    }
+  }, 1000);
+});
+
+// Auto-Updater Events
+autoUpdater.on('checking-for-update', () => {
+  updateSplashText('Checking the servers...');
 });
 
 autoUpdater.on('update-available', () => {
-  // console.log('Update found! Downloading...');
+  updateSplashText('Update found! Preparing download...');
 });
+
+// IF NO UPDATE: Close splash and open the main app
+autoUpdater.on('update-not-available', () => {
+  updateSplashText('Client is up to date! Loading...');
+  setTimeout(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+    createWindow(); // Opens the main app
+  }, 1000);
+});
+
+// Show download progress percentage
+autoUpdater.on('download-progress', (progressObj) => {
+  let percent = Math.round(progressObj.percent);
+  updateSplashText(`Downloading update... ${percent}%`);
+});
+
+// Install the update once downloaded
 autoUpdater.on('update-downloaded', () => {
-  // console.log('Update downloaded!');
+  updateSplashText('Download complete! Restarting...');
+  setTimeout(() => {
+    autoUpdater.quitAndInstall();
+  }, 2000);
 });
