@@ -1,6 +1,6 @@
 {
   "name": "secteur-v-client",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Secteur V Client",
   "main": "main.js",
   "scripts": {
@@ -16,13 +16,21 @@
       "cscLink": "build/secteur-v.pfx",
       "verifyUpdateCodeSignature": false
     },
-    "publish": [{
-      "provider": "github",
-      "owner": "killian1307",
-      "repo": "secteur-v-client" 
-    }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "killian1307",
+        "repo": "secteur-v-client"
+      }
+    ]
   },
-  "keywords": ["secteur-v", "tournament", "inazuma-eleven", "matchmaking", "desktop-client"],
+  "keywords": [
+    "secteur-v",
+    "tournament",
+    "inazuma-eleven",
+    "matchmaking",
+    "desktop-client"
+  ],
   "author": "LetterK <secteur-v@letterk.me>",
   "license": "UNLICENSED",
   "type": "commonjs",
@@ -33,6 +41,7 @@
   "dependencies": {
     "discord-rpc": "^4.0.1",
     "electron-updater": "^6.8.3",
-    "electron-window-state": "^5.0.3"
+    "electron-window-state": "^5.0.3",
+    "node-wav-player": "^1.0.0"
   }
 }

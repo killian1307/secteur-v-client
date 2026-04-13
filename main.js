@@ -1,15 +1,19 @@
-const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 const windowStateKeeper = require('electron-window-state');
 
+
 if (app.isPackaged) {
   app.setAppUserModelId('com.secteurv.client');
+} else {
+  app.setAppUserModelId(process.execPath);
 }
 
 const iconPath = path.join(__dirname, 'build', 'icon.ico');
 const iconPathTray = path.join(__dirname, 'assets', 'icon.ico');
+const soundPath = path.join(__dirname, 'assets', 'screenshot.wav').replace(/\\/g, '/');
 
 const clientId = '1469011238552862764'; 
 DiscordRPC.register(clientId);
@@ -60,6 +64,7 @@ function createWindow () {
     height: mainWindowState.height, // Let the state keeper set Height
     minWidth: 900,
     minHeight: 600,
+    show: false, // Start hidden until ready
     title: "Secteur V - Client",
     icon: iconPath,
     autoHideMenuBar: true,
@@ -75,11 +80,14 @@ function createWindow () {
   mainWindowState.manage(mainWindow);
 
   const config = getConfig();
-  if (!config.startMinimized) {
-    mainWindow.once('ready-to-show', () => {
+
+  mainWindow.once('ready-to-show', () => {
+    if (config.startMinimized) {
+      mainWindow.hide();
+    } else {
       mainWindow.show();
-    });
-  }
+    }
+  });
 
   // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
   const isDev = !app.isPackaged;
@@ -314,6 +322,7 @@ function createSplashWindow() {
     transparent: true,
     frame: false, // Removes the Windows top bar
     alwaysOnTop: true,
+    icon: iconPath,
     webPreferences: { nodeIntegration: true }
   });
   splashWindow.loadFile('splash.html');
