@@ -220,3 +220,14 @@ autoUpdater.on('update-downloaded', () => {
     autoUpdater.quitAndInstall();
   }, 2000);
 });
+
+// Catch errors
+autoUpdater.on('error', (err) => {
+  updateSplashText('Update server unreachable. Loading app...');
+  console.log('Updater Error: ', err); // Logs the actual error
+  
+  setTimeout(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+    createWindow(); // Let them into the app even if the update check fails
+  }, 2000);
+});
