@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog } = require('electron'); // Added ipcMain
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 const windowStateKeeper = require('electron-window-state');
@@ -36,9 +36,13 @@ function createWindow () {
 
   mainWindowState.manage(mainWindow);
 
-  // Define the filter
+  // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
+  const isDev = !app.isPackaged;
+  const baseURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
+
+    // Define the filter
   const filter = {
-    urls: ['*://secteur-v.letterk.me/*']
+    urls: [isDev ? '*://localhost/*' : '*://secteur-v.letterk.me/*']
   };
 
   // Intercept outgoing requests and append custom tag to the User-Agent
@@ -49,8 +53,46 @@ function createWindow () {
     callback({ requestHeaders: details.requestHeaders });
   });
 
-  // Load the URL normally
-  mainWindow.loadURL('https://secteur-v.letterk.me/');
+  // Load the URL
+  mainWindow.loadURL(baseURL);
+
+// NATIVE DIALOG FOR BEFOREUNLOAD WARNINGS
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    
+
+    const locale = app.getLocale(); 
+
+    const dialogStrings = {
+      fr: {
+        buttons: ['Quitter', 'Rester'],
+        title: 'Attention',
+        message: 'Êtes-vous sûr de vouloir quitter ?',
+        detail: 'Si vous êtes dans un match ou une file d\'attente, quitter peut entraîner une pénalité.'
+      },
+      en: {
+        buttons: ['Leave', 'Stay'],
+        title: 'Warning',
+        message: 'Are you sure you want to leave?',
+        detail: 'If you are in a match or queue, leaving may result in a penalty.'
+      }
+    };
+
+    const lang = locale.startsWith('fr') ? dialogStrings.fr : dialogStrings.en;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: lang.buttons,
+      title: lang.title,
+      message: lang.message,
+      detail: lang.detail,
+      defaultId: 1, 
+      cancelId: 1   
+    });
+
+    if (choice === 0) {
+      event.preventDefault(); 
+    }
+  });
 }
 
 // ==========================================
