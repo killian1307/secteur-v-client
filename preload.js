@@ -13,5 +13,8 @@ contextBridge.exposeInMainWorld('secteurV', {
 
     // Functions to toggle start minimized
     getStartMinimizedStatus: () => ipcRenderer.invoke('get-start-minimized'),
-    toggleStartMinimized: (value) => ipcRenderer.send('toggle-start-minimized', value)
+    toggleStartMinimized: (value) => ipcRenderer.send('toggle-start-minimized', value),
+
+    // Catch the toggle event from main.js and send it to the PHP UI
+    onOverlayToggle: (callback) => ipcRenderer.on('overlay-mode-toggled', (event, isInteractive) => callback(isInteractive))
 });

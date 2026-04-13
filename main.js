@@ -1,4 +1,5 @@
 const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
@@ -353,6 +354,8 @@ app.whenReady().then(() => {
   }
 
   createSplashWindow();
+
+  startTargetingGame();
   
   setTimeout(() => {
     // Check if running via 'npm start' or via built '.exe'
@@ -377,6 +380,92 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
+
+// ==========================================
+// --- IN-GAME OVERLAY SYSTEM ---
+// ==========================================
+let overlayWindow = null;
+let isOverlayInteractive = false;
+let gameCheckInterval = null;
+
+// The exact name of the Victory Road executable in Task Manager.
+const GAME_EXECUTABLE_NAME = "nie.exe"; 
+
+function createOverlayWindow() {
+  if (overlayWindow) return;
+
+  // Create the transparent ghost window
+  overlayWindow = new BrowserWindow({
+    width: 1920,
+    height: 1080,
+    transparent: true,      // CRITICAL: Makes the window see-through
+    frame: false,           // Removes the top Windows bar (minimize, close, etc)
+    alwaysOnTop: true,      // Forces it over the game
+    skipTaskbar: true,      // Hides it from the taskbar
+    fullscreen: true,       // Covers the whole monitor
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+
+  // By default, clicks pass STRAIGHT THROUGH the overlay to the game below
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  // Load your new PHP file
+  // CHANGE THIS URL to your actual local/live URL
+  overlayWindow.loadURL('http://localhost/overlay.php');
+
+  overlayWindow.once('ready-to-show', () => {
+    overlayWindow.showInactive(); 
+  });
+
+  // Register the interaction hotkey (Shift + Tab)
+  globalShortcut.register('Shift+Tab', () => {
+    isOverlayInteractive = !isOverlayInteractive;
+    
+    if (isOverlayInteractive) {
+      // OVERLAY MODE ON
+      overlayWindow.setIgnoreMouseEvents(false);
+      overlayWindow.focus(); // Steal keyboard focus so they can type in chat
+    } else {
+      // GAME MODE ON
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      overlayWindow.blur(); // Drop focus so the game takes the keyboard back
+    }
+
+    // Tell the UI to dim/undim
+    overlayWindow.webContents.send('overlay-mode-toggled', isOverlayInteractive);
+  });
+
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    globalShortcut.unregister('Shift+Tab');
+  });
+}
+
+// Function to silently check Windows Task Manager every 5 seconds
+function startTargetingGame() {
+  gameCheckInterval = setInterval(() => {
+    // This asks Windows: "Is VictoryRoad.exe currently running?"
+    exec(`tasklist /FI "IMAGENAME eq ${GAME_EXECUTABLE_NAME}"`, (err, stdout) => {
+      
+      const isRunning = stdout.toLowerCase().includes(GAME_EXECUTABLE_NAME.toLowerCase());
+      
+      if (isRunning && !overlayWindow) {
+        console.log("Victory Road detected! Launching overlay...");
+        createOverlayWindow();
+      } else if (!isRunning && overlayWindow) {
+        console.log("Victory Road closed. Destroying overlay...");
+        overlayWindow.close();
+      }
+    });
+  }, 5000); // Check every 5 seconds
+}
 
 // Auto-Updater Events
 autoUpdater.on('checking-for-update', () => {
