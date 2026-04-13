@@ -159,6 +159,11 @@ function createSplashWindow() {
     webPreferences: { nodeIntegration: true }
   });
   splashWindow.loadFile('splash.html');
+
+  splashWindow.webContents.on('did-finish-load', () => {
+    const version = app.getVersion();
+    splashWindow.webContents.executeJavaScript(`document.getElementById('version').innerText = 'v${version}';`);
+  });
 }
 
 // Helper to safely update the text on the splash screen
