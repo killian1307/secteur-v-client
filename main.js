@@ -1,14 +1,43 @@
-const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell } = require('electron'); // Added ipcMain
 const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 const windowStateKeeper = require('electron-window-state');
+
+app.setAppUserModelId('com.secteurv.client');
 
 const clientId = '1469011238552862764'; 
 DiscordRPC.register(clientId);
 
 let tray = null;
 let isQuitting = false;
+
+// ==========================================
+// APP SETTINGS STORAGE
+// ==========================================
+const configPath = path.join(app.getPath('userData'), 'secteur-v-config.json');
+
+function getConfig() {
+  if (fs.existsSync(configPath)) {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+  return { startMinimized: false };
+}
+
+function saveConfig(config) {
+  fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+}
+
+// Catch the toggles 
+ipcMain.handle('get-start-minimized', () => {
+  return getConfig().startMinimized;
+});
+
+ipcMain.on('toggle-start-minimized', (event, value) => {
+  const config = getConfig();
+  config.startMinimized = value;
+  saveConfig(config);
+});
 
 let mainWindow;
 
@@ -39,6 +68,13 @@ function createWindow () {
   });
 
   mainWindowState.manage(mainWindow);
+
+  const config = getConfig();
+  if (!config.startMinimized) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+    });
+  }
 
   // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
   const isDev = !app.isPackaged;
@@ -133,20 +169,38 @@ function createTray() {
   tray.on('click', () => tray.popUpContextMenu());
 }
 
-async function takeScreenshotAndSend() {
-  if (!mainWindow) return;
-
+// LOCAL SCREENSHOT LOGIC
+async function takeScreenshotAndSave() {
   try {
     // Grab the primary screen
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } });
     const primaryScreen = sources[0];
 
     if (primaryScreen) {
-      // Convert the image to a Base64 Data URL
-      const base64Image = primaryScreen.thumbnail.toDataURL();
-      
-      // Send it through the bridge to the PHP website
-      mainWindow.webContents.send('screenshot-captured', base64Image);
+      // Convert the screen to a high-quality PNG
+      const pngBuffer = primaryScreen.thumbnail.toPNG();
+
+      // Find the user's "Pictures" folder and create a "Secteur V" folder inside it
+      const picturesFolder = app.getPath('pictures');
+      const secteurVFolder = path.join(picturesFolder, 'Secteur V');
+
+      if (!fs.existsSync(secteurVFolder)) {
+        fs.mkdirSync(secteurVFolder);
+      }
+
+      // Create a unique filename using the current date and time
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filePath = path.join(secteurVFolder, `Match_Screenshot_${timestamp}.png`);
+
+      // Save the file
+      fs.writeFileSync(filePath, pngBuffer);
+
+      // Trigger a native Windows notification so they know it worked
+      new Notification({
+        title: 'Secteur V',
+        body: 'Screenshot saved to Pictures/Secteur V',
+        icon: path.join(__dirname, 'build/icon.ico')
+      }).show();
     }
   } catch (err) {
     console.error("Screenshot failed:", err);
@@ -278,7 +332,7 @@ app.whenReady().then(() => {
   // REGISTER GLOBAL HOTKEYS
   const ret = globalShortcut.register('CommandOrControl+Shift+S', () => {
     console.log('Screenshot Hotkey Pressed!');
-    takeScreenshotAndSend();
+    takeScreenshotAndSave();
   });
 
   if (!ret) {

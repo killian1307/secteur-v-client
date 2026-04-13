@@ -9,5 +9,9 @@ contextBridge.exposeInMainWorld('secteurV', {
     toggleAutoStart: (enable) => ipcRenderer.send('toggle-auto-start', enable),
 
     // Ask the backend for the current status
-    getAutoStartStatus: () => ipcRenderer.invoke('get-auto-start-status')
+    getAutoStartStatus: () => ipcRenderer.invoke('get-auto-start-status'),
+
+    // Functions to toggle start minimized
+    getStartMinimizedStatus: () => ipcRenderer.invoke('get-start-minimized'),
+    toggleStartMinimized: (value) => ipcRenderer.send('toggle-start-minimized', value)
 });

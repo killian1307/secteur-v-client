@@ -8,7 +8,7 @@
     "build": "electron-builder --win"
   },
   "build": {
-    "appId": "com.secteurv.tournaments",
+    "appId": "com.secteurv.client",
     "productName": "Secteur V",
     "win": {
       "target": "nsis",
