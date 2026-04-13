@@ -1,10 +1,48 @@
-const { app, BrowserWindow, session, ipcMain } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron'); // Added ipcMain
+const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
 const windowStateKeeper = require('electron-window-state');
 
+if (app.isPackaged) {
+  app.setAppUserModelId('com.secteurv.client');
+}
+
+const iconPath = path.join(__dirname, 'build', 'icon.ico');
+const iconPathTray = path.join(__dirname, 'assets', 'icon.ico');
+
 const clientId = '1469011238552862764'; 
 DiscordRPC.register(clientId);
+
+let tray = null;
+let isQuitting = false;
+
+// ==========================================
+// APP SETTINGS STORAGE
+// ==========================================
+const configPath = path.join(app.getPath('userData'), 'secteur-v-config.json');
+
+function getConfig() {
+  if (fs.existsSync(configPath)) {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+  return { startMinimized: false };
+}
+
+function saveConfig(config) {
+  fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
+}
+
+// Catch the toggles 
+ipcMain.handle('get-start-minimized', () => {
+  return getConfig().startMinimized;
+});
+
+ipcMain.on('toggle-start-minimized', (event, value) => {
+  const config = getConfig();
+  config.startMinimized = value;
+  saveConfig(config);
+});
 
 let mainWindow;
 
@@ -23,7 +61,7 @@ function createWindow () {
     minWidth: 900,
     minHeight: 600,
     title: "Secteur V - Client",
-    icon: path.join(__dirname, 'build/icon.ico'),
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       // When loading live URLs, nodeIntegration must be false so malicious scripts can't access the user's computer.
@@ -36,9 +74,20 @@ function createWindow () {
 
   mainWindowState.manage(mainWindow);
 
-  // Define the filter
+  const config = getConfig();
+  if (!config.startMinimized) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+    });
+  }
+
+  // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
+  const isDev = !app.isPackaged;
+  const baseURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
+
+    // Define the filter
   const filter = {
-    urls: ['*://secteur-v.letterk.me/*']
+    urls: [isDev ? '*://localhost/*' : '*://secteur-v.letterk.me/*']
   };
 
   // Intercept outgoing requests and append custom tag to the User-Agent
@@ -49,8 +98,117 @@ function createWindow () {
     callback({ requestHeaders: details.requestHeaders });
   });
 
-  // Load the URL normally
-  mainWindow.loadURL('https://secteur-v.letterk.me/');
+  // Load the URL
+  mainWindow.loadURL(baseURL);
+
+// NATIVE DIALOG FOR BEFOREUNLOAD WARNINGS
+  mainWindow.webContents.on('will-prevent-unload', (event) => {
+    
+
+    const locale = app.getLocale(); 
+
+    const dialogStrings = {
+      fr: {
+        buttons: ['Quitter', 'Rester'],
+        title: 'Attention',
+        message: 'Êtes-vous sûr de vouloir quitter ?',
+        detail: 'Si vous êtes dans un match ou une file d\'attente, quitter peut entraîner une pénalité.'
+      },
+      en: {
+        buttons: ['Leave', 'Stay'],
+        title: 'Warning',
+        message: 'Are you sure you want to leave?',
+        detail: 'If you are in a match or queue, leaving may result in a penalty.'
+      }
+    };
+
+    const lang = locale.startsWith('fr') ? dialogStrings.fr : dialogStrings.en;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: lang.buttons,
+      title: lang.title,
+      message: lang.message,
+      detail: lang.detail,
+      defaultId: 1, 
+      cancelId: 1   
+    });
+
+    if (choice === 0) {
+      event.preventDefault(); 
+    }
+  });
+
+  // Intercept the close button to hide to tray instead
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+    return false;
+  });
+}
+
+function createTray() {
+  tray = new Tray(iconPathTray);
+  
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open Secteur V', click: () => mainWindow.show() },
+    { type: 'separator' },
+    { 
+      label: 'Quit', 
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      } 
+    }
+  ]);
+  
+  tray.setToolTip('Secteur V');
+  tray.setContextMenu(contextMenu);
+
+  // Double click tray icon to open
+  tray.on('double-click', () => mainWindow.show());
+
+  // left click to open context menu
+  tray.on('click', () => tray.popUpContextMenu());
+}
+
+// LOCAL SCREENSHOT LOGIC
+async function takeScreenshotAndSave() {
+  try {
+    // Grab the primary screen
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1920, height: 1080 } });
+    const primaryScreen = sources[0];
+
+    if (primaryScreen) {
+      // Convert the screen to a high-quality PNG
+      const pngBuffer = primaryScreen.thumbnail.toPNG();
+
+      // Find the user's "Pictures" folder and create a "Secteur V" folder inside it
+      const picturesFolder = app.getPath('pictures');
+      const secteurVFolder = path.join(picturesFolder, 'Secteur V');
+
+      if (!fs.existsSync(secteurVFolder)) {
+        fs.mkdirSync(secteurVFolder);
+      }
+
+      // Create a unique filename using the current date and time
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filePath = path.join(secteurVFolder, `Match_Screenshot_${timestamp}.png`);
+
+      // Save the file
+      fs.writeFileSync(filePath, pngBuffer);
+
+      // Trigger a native Windows notification so they know it worked
+      new Notification({
+        title: 'Secteur V',
+        body: 'Screenshot saved to Pictures/Secteur V'
+      }).show();
+    }
+  } catch (err) {
+    console.error("Screenshot failed:", err);
+  }
 }
 
 // ==========================================
@@ -174,6 +332,17 @@ function updateSplashText(text) {
 }
 
 app.whenReady().then(() => {
+
+  // REGISTER GLOBAL HOTKEYS
+  const ret = globalShortcut.register('CommandOrControl+Shift+S', () => {
+    console.log('Screenshot Hotkey Pressed!');
+    takeScreenshotAndSave();
+  });
+
+  if (!ret) {
+    console.log('Hotkey registration failed.');
+  }
+
   createSplashWindow();
   
   setTimeout(() => {
@@ -185,6 +354,7 @@ app.whenReady().then(() => {
       setTimeout(() => {
         if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
         createWindow(); // Open the main app
+        createTray();    // Set up the system tray
       }, 1500);
       
     } else {
@@ -192,6 +362,11 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }
   }, 1000);
+});
+
+// Unregister when quitting
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 // Auto-Updater Events
@@ -209,6 +384,7 @@ autoUpdater.on('update-not-available', () => {
   setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     createWindow(); // Opens the main app
+    createTray();    // Set up the system tray
   }, 1000);
 });
 
@@ -234,5 +410,6 @@ autoUpdater.on('error', (err) => {
   setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     createWindow(); // Let them into the app even if the update check fails
+    createTray();    // Set up the system tray
   }, 2000);
 });
