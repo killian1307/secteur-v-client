@@ -13,7 +13,8 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "cscLink": "build/secteur-v.pfx"
+      "cscLink": "build/secteur-v.pfx",
+      "verifyUpdateCodeSignature": false
     },
     "publish": [{
       "provider": "github",

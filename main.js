@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell } = require('electron'); // Added ipcMain
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron'); // Added ipcMain
 const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
