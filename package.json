@@ -1,7 +1,7 @@
 {
   "name": "secteur-v-client",
   "version": "1.0.0",
-  "description": "",
+  "description": "Secteur V Client",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -14,15 +14,21 @@
       "target": "nsis",
       "icon": "build/icon.ico"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    },
     "publish": [{
       "provider": "github",
       "owner": "killian1307",
       "repo": "secteur-v-client" 
     }]
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["secteur-v", "tournament", "inazuma-eleven", "matchmaking", "desktop-client"],
+  "author": "LetterK <secteur-v@letterk.me>",
+  "license": "UNLICENSED",
   "type": "commonjs",
   "devDependencies": {
     "electron": "^41.2.0",

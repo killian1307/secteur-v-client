@@ -38,7 +38,7 @@ function createWindow () {
 
   // Define the filter
   const filter = {
-    urls: ['*://localhost/*']
+    urls: ['*://secteur-v.letterk.me/*']
   };
 
   // Intercept outgoing requests and append custom tag to the User-Agent
@@ -50,99 +50,111 @@ function createWindow () {
   });
 
   // Load the URL normally
-  mainWindow.loadURL('http://localhost/');
+  mainWindow.loadURL('https://secteur-v.letterk.me/');
 }
 
+// ==========================================
 // --- IPC LISTENER & DISCORD RPC SETUP ---
-const rpc = new DiscordRPC.Client({ transport: 'ipc' });
+// ==========================================
+
 const startTimestamp = new Date();
 
-// CREATE A VARIABLE TO HOLD THE USER'S DATA
-let currentUserData = null;
+let rpc = null;
+let currentRPCData = null;  // Holds the exact text sent by PHP
 
-// LISTEN FOR DATA FROM THE WEBSITE
+// Catch dynamic updates from PHP
 ipcMain.on('update-rpc', (event, data) => {
-  console.log("Received data from website:", data);
-  currentUserData = data; // Save the name and elo
-  setActivity();          // Instantly update Discord
+  // console.log("📥 Received new RPC data from website:", data);
+  currentRPCData = data; 
+  setActivity(); // Try to push immediately
 });
 
-ipcMain.on('toggle-auto-start', (event, enable) => {
-  app.setLoginItemSettings({
-    openAtLogin: enable,
-    path: app.getPath('exe') // Ensures it points to the installed executable
-  });
-  console.log(`Auto-start set to: ${enable}`);
-});
-
-ipcMain.handle('get-auto-start-status', () => {
-  // Returns true or false based on the user's OS settings
-  return app.getLoginItemSettings().openAtLogin;
-});
-
+// Activity Setter
 async function setActivity() {
-  if (!rpc) return;
-
-  // DYNAMICALLY GENERATE THE HOVER TEXT
-  let hoverText = 'Not logged in';
-  if (currentUserData) {
-    hoverText = `${currentUserData.username} - ${currentUserData.elo} EDP`;
-  }
+  if (!rpc || !currentRPCData) return; // Don't run if disconnected or no data
 
   try {
     await rpc.setActivity({
-      details: 'On the dashboard',
-      state: 'Managing Brackets',
+      details: currentRPCData.details,
+      state: currentRPCData.state,
       startTimestamp,
       largeImageKey: 'pfp',             
       largeImageText: 'Secteur V',      
       smallImageKey: 'secteurv',        
-      smallImageText: hoverText,        // USE THE DYNAMIC TEXT HERE
+      smallImageText: currentRPCData.hover, 
       instance: false,                  
-      buttons: [{ label: 'Check it out!', url: 'https://secteur-v.letterk.me' }]
+      buttons: [{ label: 'Secteur V', url: 'https://secteur-v.letterk.me' }]
     });
+    // console.log("✅ Activity pushed to Discord!");
   } catch (error) {
-    console.error('❌ Payload rejected:', error);
+    // console.log('⏳ RPC Update rate-limited by Discord, waiting for next loop...'); 
   }
 }
 
-rpc.on('ready', () => {
-  console.log(`✅ Discord RPC Connected!`);
-  setActivity();
-  setInterval(() => { setActivity(); }, 15000);
-});
+// The Reconnection Engine
+function setupDiscordRPC() {
+  // NUKE the old corrupted connection if it exists
+  if (rpc) {
+    try { rpc.destroy(); } catch (e) {}
+    rpc = null;
+  }
 
-// --- DISCORD RPC RECONNECT LOGIC ---
-function connectDiscordRPC() {
+  // SPAWN a brand new client
+  rpc = new DiscordRPC.Client({ transport: 'ipc' });
+
+  rpc.on('ready', () => {
+    // console.log('🎮 Discord RPC Connected and Ready!');
+    setActivity();
+    
+    // Clear old intervals and start a fresh 15-second loop
+    if (global.rpcInterval) clearInterval(global.rpcInterval);
+    global.rpcInterval = setInterval(() => {
+      setActivity();
+    }, 15000);
+  });
+
+  rpc.on('disconnected', () => {
+    // console.log('❌ Discord closed/refreshed. Rebuilding connection in 10s...');
+    if (global.rpcInterval) clearInterval(global.rpcInterval);
+    setTimeout(setupDiscordRPC, 10000);
+  });
+
   rpc.login({ clientId }).catch((err) => {
-    console.error('RPC Login Failed, retrying in 10s...', err.message);
-    setTimeout(connectDiscordRPC, 10000); // Try again in 10 seconds
+    // console.log('⚠️ RPC Login failed. Retrying in 10s...');
+    setTimeout(setupDiscordRPC, 10000);
   });
 }
 
-// If Discord is closed/refreshed while the app is running
-rpc.on('disconnected', () => {
-  console.log('❌ Discord closed or refreshed. Attempting to reconnect...');
-  setTimeout(connectDiscordRPC, 10000);
+// Start the engine
+setupDiscordRPC();
+
+
+// ==========================================
+// --- OS SETTINGS & AUTO-UPDATER ---
+// ==========================================
+
+ipcMain.on('toggle-auto-start', (event, enable) => {
+  app.setLoginItemSettings({
+    openAtLogin: enable,
+    path: app.getPath('exe') 
+  });
+  // console.log(`Auto-start set to: ${enable}`);
 });
 
-// Initial connection attempt
-connectDiscordRPC();
-// -------------------------
+ipcMain.handle('get-auto-start-status', () => {
+  return app.getLoginItemSettings().openAtLogin;
+});
 
 const { autoUpdater } = require('electron-updater');
 
 app.whenReady().then(() => {
   createWindow();
-  
-  // Check for updates silently in the background
   autoUpdater.checkForUpdatesAndNotify();
 });
 
-// Optional: Log update status so you can see it working
 autoUpdater.on('update-available', () => {
-  console.log('Update found! Downloading...');
+  // console.log('Update found! Downloading...');
 });
 autoUpdater.on('update-downloaded', () => {
-  console.log('Update downloaded! It will install on restart.');
+  // console.log('Update downloaded!');
 });
