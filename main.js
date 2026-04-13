@@ -56,7 +56,7 @@ function createWindow () {
     minWidth: 900,
     minHeight: 600,
     title: "Secteur V - Client",
-    icon: path.join(__dirname, 'build/icon.ico'),
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: true,
     webPreferences: {
       // When loading live URLs, nodeIntegration must be false so malicious scripts can't access the user's computer.
@@ -145,7 +145,7 @@ function createWindow () {
 }
 
 function createTray() {
-  tray = new Tray(path.join(__dirname, 'build/icon.ico'));
+  tray = new Tray(path.join(__dirname, 'assets', 'icon.ico'));
   
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Open Secteur V', click: () => mainWindow.show() },
@@ -199,7 +199,7 @@ async function takeScreenshotAndSave() {
       new Notification({
         title: 'Secteur V',
         body: 'Screenshot saved to Pictures/Secteur V',
-        icon: path.join(__dirname, 'build/icon.ico')
+        icon: path.join(__dirname, 'assets/icon.ico')
       }).show();
     }
   } catch (err) {
