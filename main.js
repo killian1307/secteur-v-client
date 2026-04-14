@@ -1,4 +1,5 @@
-const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage, screen } = require('electron');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const DiscordRPC = require('discord-rpc');
@@ -28,14 +29,51 @@ const configPath = path.join(app.getPath('userData'), 'secteur-v-config.json');
 
 function getConfig() {
   if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    // Apply defaults for existing users who don't have these new settings yet
+    if (typeof config.overlayEnabled === 'undefined') config.overlayEnabled = true;
+    if (typeof config.overlayVolume === 'undefined') config.overlayVolume = 0.5;
+    if (typeof config.overlayMuted === 'undefined') config.overlayMuted = false;
+    return config;
   }
-  return { startMinimized: false };
+  return { startMinimized: false, overlayEnabled: true, overlayVolume: 0.5, overlayMuted: false };
 }
 
 function saveConfig(config) {
   fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
 }
+
+// --- IPC: OVERLAY SETTINGS ---
+ipcMain.handle('get-overlay-settings', () => {
+  const config = getConfig();
+  return {
+    overlayEnabled: config.overlayEnabled,
+    overlayVolume: config.overlayVolume,
+    overlayMuted: config.overlayMuted
+  };
+});
+
+ipcMain.on('toggle-overlay', (event, value) => {
+  const config = getConfig();
+  config.overlayEnabled = value;
+  saveConfig(config);
+  // If user disables it while it's currently open, force close it immediately!
+  if (!value && overlayWindow) {
+    overlayWindow.close();
+  }
+});
+
+ipcMain.on('set-overlay-volume', (event, value) => {
+  const config = getConfig();
+  config.overlayVolume = parseFloat(value);
+  saveConfig(config);
+});
+
+ipcMain.on('toggle-overlay-mute', (event, value) => {
+  const config = getConfig();
+  config.overlayMuted = value;
+  saveConfig(config);
+});
 
 // Catch the toggles 
 ipcMain.handle('get-start-minimized', () => {
@@ -89,7 +127,7 @@ function createWindow () {
     }
   });
 
-  // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
+  // Devs
   const isDev = !app.isPackaged;
   const baseURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
 
@@ -353,6 +391,8 @@ app.whenReady().then(() => {
   }
 
   createSplashWindow();
+
+  startTargetingGame();
   
   setTimeout(() => {
     // Check if running via 'npm start' or via built '.exe'
@@ -377,6 +417,110 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
+
+// ==========================================
+// --- IN-GAME OVERLAY SYSTEM ---
+// ==========================================
+let overlayWindow = null;
+let isOverlayInteractive = false;
+let gameCheckInterval = null;
+
+// The exact name of the Victory Road executable in Task Manager.
+const GAME_EXECUTABLE_NAME = "nie.exe"; 
+
+function createOverlayWindow() {
+  if (overlayWindow) return;
+
+  // Create the transparent ghost window
+  overlayWindow = new BrowserWindow({
+    transparent: true,      // Makes the window see-through
+    frame: false,           
+    alwaysOnTop: true,      // Forces it over the game
+    skipTaskbar: true,      // Hides it from the taskbar
+    fullscreen: true,       // Covers the whole monitor
+    resizable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+
+  // By default, clicks pass through the overlay to the game below
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  // Load PHP file
+  const isDev = !app.isPackaged;
+  const overlayURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
+  overlayWindow.loadURL(`${overlayURL}/overlay.php`);
+
+  overlayWindow.once('ready-to-show', () => {
+    overlayWindow.showInactive(); 
+  });
+
+  // Catch the login signal from the dashboard
+  ipcMain.on('user-logged-in', () => {
+    console.log("Main window logged in! Telling overlay to update...");
+    
+    // If the overlay is currently open and hovering over a game, tell it to refresh
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('update-overlay-data');
+    }
+  });
+
+  // Register the interaction hotkey (Shift + Tab)
+  globalShortcut.register('Shift+Tab', () => {
+    isOverlayInteractive = !isOverlayInteractive;
+    
+    if (isOverlayInteractive) {
+      // OVERLAY MODE ON
+      overlayWindow.setIgnoreMouseEvents(false);
+      overlayWindow.focus(); // Steal keyboard focus so they can type in chat
+    } else {
+      // GAME MODE ON
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+      overlayWindow.blur(); // Drop focus so the game takes the keyboard back
+    }
+
+    // Tell the UI to dim/undim
+    overlayWindow.webContents.send('overlay-mode-toggled', isOverlayInteractive);
+  });
+
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    globalShortcut.unregister('Shift+Tab');
+  });
+}
+
+// Function to silently check Windows Task Manager every 5 seconds
+function startTargetingGame() {
+  gameCheckInterval = setInterval(() => {
+    
+    // Check if the user disabled the overlay in settings
+    const config = getConfig();
+    if (!config.overlayEnabled) {
+      if (overlayWindow) overlayWindow.close(); // Safety kill
+      return; // Skip checking the task manager entirely
+    }
+
+    // Is Victory Road
+    exec(`tasklist /FI "IMAGENAME eq ${GAME_EXECUTABLE_NAME}"`, (err, stdout) => {
+      
+      const isRunning = stdout.toLowerCase().includes(GAME_EXECUTABLE_NAME.toLowerCase());
+      
+      if (isRunning && !overlayWindow) {
+        console.log("Victory Road detected! Launching overlay...");
+        createOverlayWindow();
+      } else if (!isRunning && overlayWindow) {
+        console.log("Victory Road closed. Destroying overlay...");
+        overlayWindow.close();
+      }
+    });
+  }, 5000); // Check every 5 seconds
+}
 
 // Auto-Updater Events
 autoUpdater.on('checking-for-update', () => {
