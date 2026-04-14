@@ -16,5 +16,12 @@ contextBridge.exposeInMainWorld('secteurV', {
     toggleStartMinimized: (value) => ipcRenderer.send('toggle-start-minimized', value),
 
     // Catch the toggle event from main.js and send it to the PHP UI
-    onOverlayToggle: (callback) => ipcRenderer.on('overlay-mode-toggled', (event, isInteractive) => callback(isInteractive))
+    onOverlayToggle: (callback) => ipcRenderer.on('overlay-mode-toggled', (event, isInteractive) => callback(isInteractive)),
+
+    // --- OVERLAY COMMUNICATION CHANNELS ---
+    // Dashboard tells main.js that the user logged in
+    notifyLogin: () => ipcRenderer.send('user-logged-in'),
+    
+    // Overlay listens for the command to refresh its data
+    onUpdateOverlay: (callback) => ipcRenderer.on('update-overlay-data', () => callback()),
 });

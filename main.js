@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, session, ipcMain, dialog, Tray, Menu, globalShortcut, desktopCapturer, Notification, shell, nativeImage, screen } = require('electron');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -90,7 +90,7 @@ function createWindow () {
     }
   });
 
-  // Devs can test against localhost, but in production we only want to intercept the actual website's requests.
+  // Devs
   const isDev = !app.isPackaged;
   const baseURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
 
@@ -396,13 +396,12 @@ function createOverlayWindow() {
 
   // Create the transparent ghost window
   overlayWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
-    transparent: true,      // CRITICAL: Makes the window see-through
-    frame: false,           // Removes the top Windows bar (minimize, close, etc)
+    transparent: true,      // Makes the window see-through
+    frame: false,           
     alwaysOnTop: true,      // Forces it over the game
     skipTaskbar: true,      // Hides it from the taskbar
     fullscreen: true,       // Covers the whole monitor
+    resizable: false,
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -413,15 +412,26 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
 
-  // By default, clicks pass STRAIGHT THROUGH the overlay to the game below
+  // By default, clicks pass through the overlay to the game below
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
-  // Load your new PHP file
-  // CHANGE THIS URL to your actual local/live URL
-  overlayWindow.loadURL('http://localhost/overlay.php');
+  // Load PHP file
+  const isDev = !app.isPackaged;
+  const overlayURL = isDev ? 'http://localhost' : 'https://secteur-v.letterk.me';
+  overlayWindow.loadURL(`${overlayURL}/overlay.php`);
 
   overlayWindow.once('ready-to-show', () => {
     overlayWindow.showInactive(); 
+  });
+
+  // Catch the login signal from the dashboard
+  ipcMain.on('user-logged-in', () => {
+    console.log("Main window logged in! Telling overlay to update...");
+    
+    // If the overlay is currently open and hovering over a game, tell it to refresh
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('update-overlay-data');
+    }
   });
 
   // Register the interaction hotkey (Shift + Tab)
@@ -451,7 +461,7 @@ function createOverlayWindow() {
 // Function to silently check Windows Task Manager every 5 seconds
 function startTargetingGame() {
   gameCheckInterval = setInterval(() => {
-    // This asks Windows: "Is VictoryRoad.exe currently running?"
+    // Is Victory Road
     exec(`tasklist /FI "IMAGENAME eq ${GAME_EXECUTABLE_NAME}"`, (err, stdout) => {
       
       const isRunning = stdout.toLowerCase().includes(GAME_EXECUTABLE_NAME.toLowerCase());
