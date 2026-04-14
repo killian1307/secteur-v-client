@@ -29,14 +29,51 @@ const configPath = path.join(app.getPath('userData'), 'secteur-v-config.json');
 
 function getConfig() {
   if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    // Apply defaults for existing users who don't have these new settings yet
+    if (typeof config.overlayEnabled === 'undefined') config.overlayEnabled = true;
+    if (typeof config.overlayVolume === 'undefined') config.overlayVolume = 0.5;
+    if (typeof config.overlayMuted === 'undefined') config.overlayMuted = false;
+    return config;
   }
-  return { startMinimized: false };
+  return { startMinimized: false, overlayEnabled: true, overlayVolume: 0.5, overlayMuted: false };
 }
 
 function saveConfig(config) {
   fs.writeFileSync(configPath, JSON.stringify(config), 'utf8');
 }
+
+// --- IPC: OVERLAY SETTINGS ---
+ipcMain.handle('get-overlay-settings', () => {
+  const config = getConfig();
+  return {
+    overlayEnabled: config.overlayEnabled,
+    overlayVolume: config.overlayVolume,
+    overlayMuted: config.overlayMuted
+  };
+});
+
+ipcMain.on('toggle-overlay', (event, value) => {
+  const config = getConfig();
+  config.overlayEnabled = value;
+  saveConfig(config);
+  // If user disables it while it's currently open, force close it immediately!
+  if (!value && overlayWindow) {
+    overlayWindow.close();
+  }
+});
+
+ipcMain.on('set-overlay-volume', (event, value) => {
+  const config = getConfig();
+  config.overlayVolume = parseFloat(value);
+  saveConfig(config);
+});
+
+ipcMain.on('toggle-overlay-mute', (event, value) => {
+  const config = getConfig();
+  config.overlayMuted = value;
+  saveConfig(config);
+});
 
 // Catch the toggles 
 ipcMain.handle('get-start-minimized', () => {
@@ -461,6 +498,14 @@ function createOverlayWindow() {
 // Function to silently check Windows Task Manager every 5 seconds
 function startTargetingGame() {
   gameCheckInterval = setInterval(() => {
+    
+    // Check if the user disabled the overlay in settings
+    const config = getConfig();
+    if (!config.overlayEnabled) {
+      if (overlayWindow) overlayWindow.close(); // Safety kill
+      return; // Skip checking the task manager entirely
+    }
+
     // Is Victory Road
     exec(`tasklist /FI "IMAGENAME eq ${GAME_EXECUTABLE_NAME}"`, (err, stdout) => {
       

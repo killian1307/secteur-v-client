@@ -24,4 +24,10 @@ contextBridge.exposeInMainWorld('secteurV', {
     
     // Overlay listens for the command to refresh its data
     onUpdateOverlay: (callback) => ipcRenderer.on('update-overlay-data', () => callback()),
+
+    // --- OVERLAY SETTINGS ---
+    getOverlaySettings: () => ipcRenderer.invoke('get-overlay-settings'),
+    toggleOverlay: (enable) => ipcRenderer.send('toggle-overlay', enable),
+    setOverlayVolume: (vol) => ipcRenderer.send('set-overlay-volume', vol),
+    toggleOverlayMute: (mute) => ipcRenderer.send('toggle-overlay-mute', mute),
 });
