@@ -90,33 +90,32 @@ ipcMain.on('toggle-start-minimized', (event, value) => {
 // LOCAL SPOTIFY ENGINE
 // ==========================================
 
-// Read the Windows Tasklist to find the Spotify Window Title
+// Read the Windows Process list natively
 ipcMain.handle('get-spotify-track', async () => {
   return new Promise((resolve) => {
-    // Fast, lightweight Windows command to get Spotify's Window Title
-    exec(`tasklist /v /fi "imagename eq spotify.exe" /fo csv /nh`, (err, stdout) => {
+    const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Name 'spotify' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
+
+    exec(`powershell.exe -NoProfile -Command "${psCommand}"`, { encoding: 'utf8' }, (err, stdout) => {
       if (err || !stdout) return resolve({ playing: false });
 
-      // Find the row that actually has a window title
       const lines = stdout.split('\n');
+      const ignoredTitles = ['spotify', 'spotify premium', 'spotify free', 'apple music', 'tidal', 'deezer', 'anglehiddenwindow', 'n/a'];
+
       for (let line of lines) {
-        // Parse the CSV output. The Window Title is the last column.
-        const columns = line.split('","');
-        if (columns.length >= 8) {
-          let title = columns[columns.length - 1].replace('"', '').trim();
-          
-          if (title && title !== 'N/A' && title !== 'Spotify' && title !== 'Spotify Premium' && title !== 'Spotify Free' && title !== 'AngleHiddenWindow') {
-            // Title is formatted as "Artist - Track"
-            const parts = title.split(' - ');
-            if (parts.length >= 2) {
-              const artist = parts[0].trim();
-              const track = parts.slice(1).join(' - ').trim();
-              return resolve({ playing: true, artist, track });
-            }
+        let title = line.trim();
+        
+        if (title && !ignoredTitles.includes(title.toLowerCase())) {
+          // Most players format their playing state as "Artist - Track"
+          const parts = title.split(' - ');
+          if (parts.length >= 2) {
+            return resolve({ playing: true, artist: parts[0].trim(), track: parts.slice(1).join(' - ').trim() });
+          } else {
+            // Fallback if the app only shows the track name
+            return resolve({ playing: true, artist: "Unknown Artist", track: title });
           }
         }
       }
-      resolve({ playing: false }); // Nothing matched, so it's paused
+      resolve({ playing: false }); 
     });
   });
 });
