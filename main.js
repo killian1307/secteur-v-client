@@ -86,6 +86,59 @@ ipcMain.on('toggle-start-minimized', (event, value) => {
   saveConfig(config);
 });
 
+// ==========================================
+// LOCAL SPOTIFY ENGINE
+// ==========================================
+
+// Read the Windows Process list natively
+ipcMain.handle('get-spotify-track', async () => {
+  return new Promise((resolve) => {
+    const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Name 'spotify' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
+
+    exec(`powershell.exe -NoProfile -Command "${psCommand}"`, { encoding: 'utf8' }, (err, stdout) => {
+      if (err || !stdout) return resolve({ playing: false });
+
+      const lines = stdout.split('\n');
+      const ignoredTitles = ['spotify', 'spotify premium', 'spotify free', 'apple music', 'tidal', 'deezer', 'anglehiddenwindow', 'n/a'];
+
+      for (let line of lines) {
+        let title = line.trim();
+        
+        if (title && !ignoredTitles.includes(title.toLowerCase())) {
+          // Most players format their playing state as "Artist - Track"
+          const parts = title.split(' - ');
+          if (parts.length >= 2) {
+            return resolve({ playing: true, artist: parts[0].trim(), track: parts.slice(1).join(' - ').trim() });
+          } else {
+            // Fallback if the app only shows the track name
+            return resolve({ playing: true, artist: "Unknown Artist", track: title });
+          }
+        }
+      }
+      resolve({ playing: false }); 
+    });
+  });
+});
+
+// Simulate physical media keys using a tiny PowerShell script
+ipcMain.on('spotify-control', (event, action) => {
+  let vkCode;
+  if (action === 'playpause') vkCode = '0xB3'; // VK_MEDIA_PLAY_PAUSE
+  else if (action === 'next') vkCode = '0xB0'; // VK_MEDIA_NEXT_TRACK
+  else if (action === 'previous') vkCode = '0xB1'; // VK_MEDIA_PREV_TRACK
+  else return;
+
+  // The clean, unescaped PowerShell code
+  const psCommand = `$code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru; $kb::keybd_event(${vkCode}, 0, 0, 0); Start-Sleep -Milliseconds 50; $kb::keybd_event(${vkCode}, 0, 2, 0);`;
+
+  const encodedCmd = Buffer.from(psCommand, 'utf16le').toString('base64');
+
+  // Execute using the -EncodedCommand flag
+  exec(`powershell.exe -NoProfile -EncodedCommand ${encodedCmd}`, (err) => {
+      if (err) console.error("Spotify media key failed:", err);
+  });
+});
+
 let mainWindow;
 
 function createWindow () {
