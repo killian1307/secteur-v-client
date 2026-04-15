@@ -129,16 +129,13 @@ ipcMain.on('spotify-control', (event, action) => {
   else if (action === 'previous') vkCode = '0xB1'; // VK_MEDIA_PREV_TRACK
   else return;
 
-  // We MUST send a KeyDown (0) AND a KeyUp (2) for Windows to register a full click!
-  const psCommand = `
-    $code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);';
-    $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru;
-    $kb::keybd_event(${vkCode}, 0, 0, 0);
-    Start-Sleep -Milliseconds 50;
-    $kb::keybd_event(${vkCode}, 0, 2, 0);
-  `.replace(/\n/g, ' '); // Compress to single line to avoid command prompt formatting issues
+  // The clean, unescaped PowerShell code
+  const psCommand = `$code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru; $kb::keybd_event(${vkCode}, 0, 0, 0); Start-Sleep -Milliseconds 50; $kb::keybd_event(${vkCode}, 0, 2, 0);`;
 
-  exec(`powershell.exe -NoProfile -Command "${psCommand}"`, (err) => {
+  const encodedCmd = Buffer.from(psCommand, 'utf16le').toString('base64');
+
+  // Execute using the -EncodedCommand flag
+  exec(`powershell.exe -NoProfile -EncodedCommand ${encodedCmd}`, (err) => {
       if (err) console.error("Spotify media key failed:", err);
   });
 });
