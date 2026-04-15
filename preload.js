@@ -30,4 +30,8 @@ contextBridge.exposeInMainWorld('secteurV', {
     toggleOverlay: (enable) => ipcRenderer.send('toggle-overlay', enable),
     setOverlayVolume: (vol) => ipcRenderer.send('set-overlay-volume', vol),
     toggleOverlayMute: (mute) => ipcRenderer.send('toggle-overlay-mute', mute),
+
+    // --- LOCAL SPOTIFY CONTROLS ---
+    getSpotifyTrack: () => ipcRenderer.invoke('get-spotify-track'),
+    sendSpotifyControl: (action) => ipcRenderer.send('spotify-control', action),
 });

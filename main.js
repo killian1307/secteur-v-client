@@ -86,6 +86,63 @@ ipcMain.on('toggle-start-minimized', (event, value) => {
   saveConfig(config);
 });
 
+// ==========================================
+// LOCAL SPOTIFY ENGINE
+// ==========================================
+
+// Read the Windows Tasklist to find the Spotify Window Title
+ipcMain.handle('get-spotify-track', async () => {
+  return new Promise((resolve) => {
+    // Fast, lightweight Windows command to get Spotify's Window Title
+    exec(`tasklist /v /fi "imagename eq spotify.exe" /fo csv /nh`, (err, stdout) => {
+      if (err || !stdout) return resolve({ playing: false });
+
+      // Find the row that actually has a window title
+      const lines = stdout.split('\n');
+      for (let line of lines) {
+        // Parse the CSV output. The Window Title is the last column.
+        const columns = line.split('","');
+        if (columns.length >= 8) {
+          let title = columns[columns.length - 1].replace('"', '').trim();
+          
+          if (title && title !== 'N/A' && title !== 'Spotify' && title !== 'Spotify Premium' && title !== 'Spotify Free' && title !== 'AngleHiddenWindow') {
+            // Title is formatted as "Artist - Track"
+            const parts = title.split(' - ');
+            if (parts.length >= 2) {
+              const artist = parts[0].trim();
+              const track = parts.slice(1).join(' - ').trim();
+              return resolve({ playing: true, artist, track });
+            }
+          }
+        }
+      }
+      resolve({ playing: false }); // Nothing matched, so it's paused
+    });
+  });
+});
+
+// Simulate physical media keys using a tiny PowerShell script
+ipcMain.on('spotify-control', (event, action) => {
+  let vkCode;
+  if (action === 'playpause') vkCode = '0xB3'; // VK_MEDIA_PLAY_PAUSE
+  else if (action === 'next') vkCode = '0xB0'; // VK_MEDIA_NEXT_TRACK
+  else if (action === 'previous') vkCode = '0xB1'; // VK_MEDIA_PREV_TRACK
+  else return;
+
+  // We MUST send a KeyDown (0) AND a KeyUp (2) for Windows to register a full click!
+  const psCommand = `
+    $code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);';
+    $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru;
+    $kb::keybd_event(${vkCode}, 0, 0, 0);
+    Start-Sleep -Milliseconds 50;
+    $kb::keybd_event(${vkCode}, 0, 2, 0);
+  `.replace(/\n/g, ' '); // Compress to single line to avoid command prompt formatting issues
+
+  exec(`powershell.exe -NoProfile -Command "${psCommand}"`, (err) => {
+      if (err) console.error("Spotify media key failed:", err);
+  });
+});
+
 let mainWindow;
 
 function createWindow () {
