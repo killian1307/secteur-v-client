@@ -90,27 +90,32 @@ ipcMain.on('toggle-start-minimized', (event, value) => {
 // LOCAL SPOTIFY ENGINE
 // ==========================================
 
-// Read the Windows Process list natively
+// 1. Read the Windows Process list natively (Bulletproof Base64 + Timeout)
 ipcMain.handle('get-spotify-track', async () => {
   return new Promise((resolve) => {
-    const psCommand = `$OutputEncoding = [System.Text.Encoding]::UTF8; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; Get-Process | Where-Object { $_.Name -match '^(spotify|applemusic|tidal|deezer)$' -and $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
+    const { exec } = require('child_process');
+    
+    // PowerShell script
+    const psScript = `try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; Get-Process | Where-Object { $_.Name -match '^(spotify|applemusic|tidal|deezer)$' -and $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
+    
+    // Encode to Base64
+    const encodedCmd = Buffer.from(psScript, 'utf16le').toString('base64');
 
-    exec(`powershell.exe -NoProfile -Command "${psCommand}"`, { encoding: 'utf8' }, (err, stdout) => {
-      if (err || !stdout) return resolve({ playing: false });
+    // Added ExecutionPolicy Bypass AND a 2-second timeout to prevent infinite UI freezing
+    exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCmd}`, { encoding: 'utf8', timeout: 2000 }, (err, stdout) => {
+      // If it errors, times out, or returns nothing, safely report that nothing is playing
+      if (err || !stdout || stdout.trim() === '') return resolve({ playing: false });
 
       const lines = stdout.split('\n');
       const ignoredTitles = ['spotify', 'spotify premium', 'spotify free', 'apple music', 'tidal', 'deezer', 'anglehiddenwindow', 'n/a'];
 
       for (let line of lines) {
         let title = line.trim();
-        
         if (title && !ignoredTitles.includes(title.toLowerCase())) {
-          // Most players format their playing state as "Artist - Track"
           const parts = title.split(' - ');
           if (parts.length >= 2) {
             return resolve({ playing: true, artist: parts[0].trim(), track: parts.slice(1).join(' - ').trim() });
           } else {
-            // Fallback if the app only shows the track name
             return resolve({ playing: true, artist: "Unknown Artist", track: title });
           }
         }
@@ -120,24 +125,21 @@ ipcMain.handle('get-spotify-track', async () => {
   });
 });
 
-// Simulate physical media keys using a tiny PowerShell script
+// Simulate physical media keys
 ipcMain.on('spotify-control', (event, action) => {
   let vkCode;
-  if (action === 'playpause') vkCode = '0xB3'; // VK_MEDIA_PLAY_PAUSE
-  else if (action === 'next') vkCode = '0xB0'; // VK_MEDIA_NEXT_TRACK
-  else if (action === 'previous') vkCode = '0xB1'; // VK_MEDIA_PREV_TRACK
+  if (action === 'playpause') vkCode = '0xB3'; 
+  else if (action === 'next') vkCode = '0xB0'; 
+  else if (action === 'previous') vkCode = '0xB1'; 
   else return;
 
   const { exec } = require('child_process');
 
-  // PowerShell script
   const psScript = `$code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru; $kb::keybd_event(${vkCode}, 0, 0, 0); Start-Sleep -Milliseconds 50; $kb::keybd_event(${vkCode}, 0, 2, 0);`;
-
-  // Encode to Base64
   const encodedCmd = Buffer.from(psScript, 'utf16le').toString('base64');
 
-  // Execute in RAM
-  exec(`powershell.exe -NoProfile -EncodedCommand ${encodedCmd}`, (err) => {
+  // Added ExecutionPolicy Bypass AND a 2-second timeout
+  exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCmd}`, { timeout: 2000 }, (err) => {
       if (err) console.error("Spotify media key failed:", err);
   });
 });
