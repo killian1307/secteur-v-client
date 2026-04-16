@@ -93,7 +93,7 @@ ipcMain.on('toggle-start-minimized', (event, value) => {
 // Read the Windows Process list natively
 ipcMain.handle('get-spotify-track', async () => {
   return new Promise((resolve) => {
-    const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Name 'spotify' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
+    const psCommand = `$OutputEncoding = [System.Text.Encoding]::UTF8; try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; Get-Process | Where-Object { $_.Name -match '^(spotify|applemusic|tidal|deezer)$' -and $_.MainWindowTitle } | Select-Object -ExpandProperty MainWindowTitle`;
 
     exec(`powershell.exe -NoProfile -Command "${psCommand}"`, { encoding: 'utf8' }, (err, stdout) => {
       if (err || !stdout) return resolve({ playing: false });
@@ -128,12 +128,15 @@ ipcMain.on('spotify-control', (event, action) => {
   else if (action === 'previous') vkCode = '0xB1'; // VK_MEDIA_PREV_TRACK
   else return;
 
-  // The clean, unescaped PowerShell code
-  const psCommand = `$code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru; $kb::keybd_event(${vkCode}, 0, 0, 0); Start-Sleep -Milliseconds 50; $kb::keybd_event(${vkCode}, 0, 2, 0);`;
+  const { exec } = require('child_process');
 
-  const encodedCmd = Buffer.from(psCommand, 'utf16le').toString('base64');
+  // PowerShell script
+  const psScript = `$code = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);'; $kb = Add-Type -MemberDefinition $code -Name 'KB' -PassThru; $kb::keybd_event(${vkCode}, 0, 0, 0); Start-Sleep -Milliseconds 50; $kb::keybd_event(${vkCode}, 0, 2, 0);`;
 
-  // Execute using the -EncodedCommand flag
+  // Encode to Base64
+  const encodedCmd = Buffer.from(psScript, 'utf16le').toString('base64');
+
+  // Execute in RAM
   exec(`powershell.exe -NoProfile -EncodedCommand ${encodedCmd}`, (err) => {
       if (err) console.error("Spotify media key failed:", err);
   });
